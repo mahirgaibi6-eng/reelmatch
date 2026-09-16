@@ -345,6 +345,10 @@ document.getElementById('findBtn').addEventListener('click', () => {
 });
 
 // ---- Song/audio upload → transcribe → auto-fill + auto-search ----
+const songUploadZone = document.getElementById('songUploadZone');
+const songFileInput = document.getElementById('songFileInput');
+songUploadZone.addEventListener('click', () => songFileInput.click());
+
 document.getElementById('songFileInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
