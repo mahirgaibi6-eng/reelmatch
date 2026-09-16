@@ -167,6 +167,16 @@
     animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  .audio-row {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 10px;
+  }
+  .audio-row .audio-title { font-size: 14px; margin-bottom: 4px; }
+  .audio-row .audio-meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .audio-row audio { width: 100%; margin-bottom: 10px; height: 34px; }
+  .audio-row .btn-row { display: flex; gap: 8px; }
+  .audio-row .btn-row button { flex: 1; padding: 9px 6px; font-size: 12.5px; }
 </style>
 </head>
 <body>
@@ -227,9 +237,13 @@
 
   <section class="results">
     <div class="section-head">
-      <h2>Audio / Music (sirf apna upload)</h2>
+      <h2>Audio / Music</h2>
+      <span class="count" id="openverseAudioCount"></span>
     </div>
-    <div class="empty-state" style="border-top:none; padding-top:0; margin-bottom:-4px;">Pixabay ke paas music/audio ke liye public API nahi hai — is category mein sirf apni file upload chalegi.</div>
+    <div class="empty-state" style="border-top:none; padding-top:0; margin-bottom:14px;">Pixabay ke paas music/audio ke liye public API nahi hai, lekin Openverse se free Creative Commons audio milta hai — neeche apni file bhi upload kar sakte ho.</div>
+    <div id="openverseAudioResultsArea">
+      <div class="empty-state">Ab tak koi search nahi hui.</div>
+    </div>
     <div class="upload-zone" id="uploadZone">
       Yahan click karo ya file drag karo — video, audio ya song koi bhi format
       <input type="file" id="fileInput" accept="video/*,audio/*" multiple />
@@ -292,9 +306,11 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   document.getElementById('imageResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
   document.getElementById('videoResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
   document.getElementById('openverseResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
+  document.getElementById('openverseAudioResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
   document.getElementById('imageCount').textContent = '';
   document.getElementById('videoCount').textContent = '';
   document.getElementById('openverseCount').textContent = '';
+  document.getElementById('openverseAudioCount').textContent = '';
 });
 
 function renderCards(hits, type) {
@@ -346,6 +362,26 @@ function renderOpenverseCards(results) {
   }).join('')}</div>`;
 }
 
+function renderOpenverseAudioCards(results) {
+  return results.map((r) => {
+    const label = (r.title || 'untitled').slice(0, 60);
+    const creator = r.creator ? `by ${r.creator}` : '';
+    const license = r.license ? r.license.toUpperCase() : '';
+    const duration = r.duration ? Math.round(r.duration / 1000) + 's' : '';
+    const audioUrl = r.url;
+    return `
+      <div class="audio-row">
+        <div class="audio-title">${label}</div>
+        <div class="audio-meta">${creator} ${license} ${duration}</div>
+        <audio controls preload="none" src="${audioUrl}"></audio>
+        <div class="btn-row">
+          <button class="btn-ghost" data-action="timeline" data-id="ova-${r.id}" data-name="${label.replace(/"/g,'')}" data-source="Openverse Audio" data-url="${audioUrl}">Timeline</button>
+          <button class="btn-download" data-action="download" data-url="${audioUrl}" data-filename="${label.replace(/[^a-zA-Z0-9._ -]/g,'')}-ova.mp3">Download</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
 async function performSearch(scriptText) {
   const imgArea = document.getElementById('imageResultsArea');
   const vidArea = document.getElementById('videoResultsArea');
@@ -364,6 +400,8 @@ async function performSearch(scriptText) {
   vidArea.innerHTML = '<div class="loading"><span class="spinner"></span>Videos dhoond rahe hain...</div>';
   const ovArea = document.getElementById('openverseResultsArea');
   ovArea.innerHTML = '<div class="loading"><span class="spinner"></span>Openverse dhoond rahe hain...</div>';
+  const ovAudioArea = document.getElementById('openverseAudioResultsArea');
+  ovAudioArea.innerHTML = '<div class="loading"><span class="spinner"></span>Audio dhoond rahe hain...</div>';
 
   try {
     const res = await fetch(`/api/pixabay?type=image&q=${query}`);
@@ -408,6 +446,21 @@ async function performSearch(scriptText) {
     }
   } catch (err) {
     ovArea.innerHTML = `<div class="empty-state">Openverse search fail: ${err.message}</div>`;
+  }
+
+  try {
+    const res = await fetch(`https://api.openverse.org/v1/audio/?q=${query}&page_size=8`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'server error');
+    if (!data.results || data.results.length === 0) {
+      ovAudioArea.innerHTML = '<div class="empty-state">Koi matching audio nahi mila.</div>';
+      document.getElementById('openverseAudioCount').textContent = '';
+    } else {
+      document.getElementById('openverseAudioCount').textContent = `${data.results.length} mile`;
+      ovAudioArea.innerHTML = renderOpenverseAudioCards(data.results);
+    }
+  } catch (err) {
+    ovAudioArea.innerHTML = `<div class="empty-state">Audio search fail: ${err.message}</div>`;
   }
 }
 
