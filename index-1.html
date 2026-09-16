@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reelmatch — script se video match</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0F1115;
+    --panel: #171A21;
+    --panel-2: #1D212B;
+    --border: #262B36;
+    --text: #EDEFF2;
+    --muted: #8B90A0;
+    --teal: #4FD1C5;
+    --teal-dim: #2E5E5A;
+    --amber: #F2A354;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    line-height: 1.5;
+  }
+  h1, h2, h3, .display { font-family: 'Space Grotesk', sans-serif; }
+
+  .wrap { max-width: 980px; margin: 0 auto; padding: 48px 24px 100px; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 56px; flex-wrap: wrap; gap: 12px;}
+  .brand { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+  .brand span { color: var(--teal); }
+  header .tag { color: var(--muted); font-size: 14px; }
+
+  .hero h1 {
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin: 0 0 16px;
+    max-width: 620px;
+  }
+  .hero p.sub { color: var(--muted); font-size: 16px; max-width: 480px; margin: 0 0 40px; }
+
+  .field-label { font-size: 13px; color: var(--muted); margin-bottom: 8px; display: block; }
+
+  .key-row {
+    display: flex; gap: 10px; align-items: center; margin-bottom: 28px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  }
+  .key-row input {
+    flex: 1; background: transparent; border: none; color: var(--text); font-size: 14px; outline: none; font-family: 'Inter', sans-serif;
+  }
+  .key-status { font-size: 12px; padding: 4px 10px; border-radius: 100px; white-space: nowrap; }
+  .key-status.empty { background: #2A2118; color: var(--amber); }
+  .key-status.ok { background: #163B37; color: var(--teal); }
+  .key-help { font-size: 12px; color: var(--muted); margin: -18px 0 28px; }
+  .key-help a { color: var(--teal); }
+
+  textarea {
+    width: 100%; min-height: 110px; resize: vertical;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    color: var(--text); font-family: 'Inter', sans-serif; font-size: 15px; padding: 16px;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--teal-dim); }
+
+  .action-row { display: flex; gap: 12px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
+
+  button {
+    font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14px;
+    border-radius: 999px; padding: 12px 22px; border: none; cursor: pointer;
+    transition: transform .12s ease, opacity .12s ease;
+  }
+  button:active { transform: scale(0.97); }
+  .btn-primary { background: var(--teal); color: #05201D; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--teal-dim); }
+
+  .keywords-preview { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .keyword-chip {
+    font-size: 12.5px; padding: 5px 12px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+  }
+
+  section.results { margin-top: 64px; }
+  .section-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 18px; }
+  .section-head h2 { font-size: 18px; margin: 0; font-weight: 600; }
+  .section-head .count { font-size: 13px; color: var(--muted); }
+
+  .filmstrip {
+    display: flex; gap: 14px; overflow-x: auto; padding: 6px 6px 16px 0;
+    scrollbar-width: thin;
+  }
+  .filmstrip::-webkit-scrollbar { height: 6px; }
+  .filmstrip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .card {
+    position: relative; flex: 0 0 220px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+  }
+  .card .frame-holes {
+    display: flex; justify-content: space-between; padding: 6px 8px; background: #0B0D11;
+  }
+  .frame-holes span { width: 6px; height: 6px; border-radius: 2px; background: #2B303B; }
+  .card video, .card img { width: 100%; height: 124px; object-fit: cover; display: block; background: #000; }
+  .card .meta { padding: 12px 14px 14px; }
+  .card .meta .tags { font-size: 12px; color: var(--muted); margin-bottom: 10px; height: 32px; overflow: hidden; }
+  .card .meta button { width: 100%; font-size: 13px; padding: 9px; }
+  .card .meta .btn-row { display: flex; gap: 8px; }
+  .card .meta .btn-row button { flex: 1; padding: 9px 6px; font-size: 12.5px; }
+  .btn-download { background: var(--teal); color: #05201D; }
+  .btn-download:disabled { opacity: 0.5; cursor: wait; }
+  .timeline-row .btn-download-row { padding: 6px 10px; font-size: 12px; border: 1px solid var(--teal-dim); color: var(--teal); border-radius: 8px; background: transparent; }
+  .badge-best {
+    position: absolute; top: 34px; left: 10px; z-index: 2;
+    background: var(--amber); color: #2B1B04; font-size: 11px; font-weight: 700;
+    padding: 3px 9px; border-radius: 999px; letter-spacing: 0.02em;
+  }
+
+  .empty-state { color: var(--muted); font-size: 14px; padding: 28px 0; border-top: 1px solid var(--border); }
+
+  .upload-zone {
+    border: 1.5px dashed var(--border); border-radius: 14px; padding: 28px; text-align: center;
+    color: var(--muted); font-size: 14px; margin-top: 18px; cursor: pointer; transition: border-color .15s;
+  }
+  .upload-zone:hover, .upload-zone.drag { border-color: var(--teal); color: var(--text); }
+  .upload-zone input { display: none; }
+
+  .timeline { margin-top: 20px; }
+  .timeline-row {
+    display: flex; align-items: center; gap: 12px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;
+  }
+  .timeline-row .idx { font-family: 'Space Grotesk', sans-serif; color: var(--teal); font-weight: 600; width: 20px; }
+  .timeline-row .name { flex: 1; font-size: 14px; }
+  .timeline-row .src { font-size: 12px; color: var(--muted); }
+  .timeline-row button { background: transparent; color: var(--muted); padding: 6px 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 8px; }
+  .timeline-row button:hover { color: #E86A6A; border-color: #E86A6A; }
+
+  .generate-note {
+    margin-top: 24px; padding: 16px 18px; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 12px; font-size: 13.5px; color: var(--muted);
+  }
+  .generate-note strong { color: var(--text); }
+
+  .loading { color: var(--muted); font-size: 14px; padding: 10px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">Reel<span>match</span></div>
+    <div class="tag">script → matched footage → timeline</div>
+  </header>
+
+  <div class="hero">
+    <h1>Apna script ya gaana daalo, Pixabay se best matching clips paao</h1>
+    <p class="sub">Keywords detect karke Pixabay ki video library search hoti hai — ya apni khud ki footage/audio bhi jod sakte ho.</p>
+  </div>
+
+  <label class="field-label">Script / lyrics / mood describe karo</label>
+  <textarea id="scriptInput" placeholder="Jaise: ek akela traveler pahaadon mein sunset dekh raha hai, sukoon aur azaadi ka feel..."></textarea>
+  <div class="action-row">
+    <button class="btn-primary" id="findBtn">Matches dhundo</button>
+    <button class="btn-ghost" id="clearBtn">Clear</button>
+  </div>
+  <div class="keywords-preview" id="keywordsPreview"></div>
+
+  <section class="results">
+    <div class="section-head">
+      <h2>Images se match</h2>
+      <span class="count" id="imageCount"></span>
+    </div>
+    <div id="imageResultsArea">
+      <div class="empty-state">Ab tak koi search nahi hui.</div>
+    </div>
+  </section>
+
+  <section class="results">
+    <div class="section-head">
+      <h2>Videos se match</h2>
+      <span class="count" id="videoCount"></span>
+    </div>
+    <div id="videoResultsArea">
+      <div class="empty-state">Ab tak koi search nahi hui — upar script daalkar "Matches dhundo" dabao.</div>
+    </div>
+  </section>
+
+  <section class="results">
+    <div class="section-head">
+      <h2>Audio / Music (sirf apna upload)</h2>
+    </div>
+    <div class="empty-state" style="border-top:none; padding-top:0; margin-bottom:-4px;">Pixabay ke paas music/audio ke liye public API nahi hai — is category mein sirf apni file upload chalegi.</div>
+    <div class="upload-zone" id="uploadZone">
+      Yahan click karo ya file drag karo — video, audio ya song koi bhi format
+      <input type="file" id="fileInput" accept="video/*,audio/*" multiple />
+    </div>
+  </section>
+
+  <section class="results">
+    <div class="section-head">
+      <h2>Timeline (select kiye gaye clips)</h2>
+      <span class="count" id="timelineCount">0 clips</span>
+    </div>
+    <div class="timeline" id="timelineArea">
+      <div class="empty-state">Koi clip select nahi hui abhi.</div>
+    </div>
+    <div class="generate-note">
+      <strong>Next step:</strong> Timeline ban jaane ke baad in clips ko actual ek video file me jodne ke liye
+      server-side rendering engine (FFmpeg / Remotion) chahiye hoga — ye demo sirf matching + selection ka flow dikhata hai.
+      Agar ye flow sahi lag raha hai, main render backend alag se bana sakta hoon.
+    </div>
+  </section>
+
+</div>
+
+<script>
+// The Pixabay API key now lives only on the server (see /api/pixabay.js).
+// This page never holds or sends the key — it just calls our own /api/pixabay
+// endpoint, which is safe to expose publicly.
+
+async function fetchWithFallback(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('status ' + res.status);
+    return res;
+  } catch (err) {
+    // Local file:// pages can get blocked by CORS — retry through a proxy
+    const proxied = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    const res2 = await fetch(proxied);
+    if (!res2.ok) throw new Error('proxy fetch failed too: ' + res2.status);
+    return res2;
+  }
+}
+
+const STOPWORDS = new Set(['ek','ka','ki','ke','mein','me','hai','aur','se','pe','par','ho','raha','rahi','rahe','the','a','an','the','of','in','on','and','is','are','the','to','for','with','feel','ka','ko']);
+
+let timeline = [];
+
+function extractKeywords(text) {
+  const words = text.toLowerCase()
+    .replace(/[^a-zA-Z\u0900-\u097F\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOPWORDS.has(w));
+  const freq = {};
+  words.forEach(w => freq[w] = (freq[w]||0)+1);
+  return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,6).map(e=>e[0]);
+}
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  document.getElementById('scriptInput').value = '';
+  document.getElementById('keywordsPreview').innerHTML = '';
+  document.getElementById('imageResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
+  document.getElementById('videoResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
+  document.getElementById('imageCount').textContent = '';
+  document.getElementById('videoCount').textContent = '';
+});
+
+function renderCards(hits, type) {
+  return `<div class="filmstrip">${hits.map((v, i) => {
+    const previewUrl = type === 'image' ? v.webformatURL : (v.videos.tiny.thumbnail || '');
+    const downloadUrl = type === 'image' ? (v.largeImageURL || v.webformatURL) : (v.videos.medium ? v.videos.medium.url : v.videos.tiny.url);
+    const label = v.tags.split(',')[0].trim();
+    const ext = type === 'image' ? 'jpg' : 'mp4';
+    const media = type === 'image'
+      ? `<img src="${v.webformatURL}" loading="lazy" alt="${label}">`
+      : `<video muted loop playsinline autoplay poster="${previewUrl}"><source src="${v.videos.tiny.url}" type="video/mp4"></video>`;
+    return `
+      <div class="card">
+        ${i === 0 ? '<div class="badge-best">best match</div>' : ''}
+        <div class="frame-holes">${'<span></span>'.repeat(6)}</div>
+        ${media}
+        <div class="meta">
+          <div class="tags">${v.tags}</div>
+          <div class="btn-row">
+            <button class="btn-ghost" data-action="timeline" data-id="${v.id}" data-name="${label.replace(/"/g,'')}" data-source="Pixabay" data-url="${downloadUrl}">Timeline</button>
+            <button class="btn-download" data-action="download" data-url="${downloadUrl}" data-filename="${label.replace(/[^a-zA-Z0-9._ -]/g,'')}-${v.id}.${ext}">Download</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('')}</div>`;
+}
+
+document.getElementById('findBtn').addEventListener('click', async () => {
+  const script = document.getElementById('scriptInput').value.trim();
+  const imgArea = document.getElementById('imageResultsArea');
+  const vidArea = document.getElementById('videoResultsArea');
+  const keywordsPreview = document.getElementById('keywordsPreview');
+
+  if (!script) {
+    imgArea.innerHTML = '<div class="empty-state">Pehle script ya mood likho.</div>';
+    return;
+  }
+
+  const keywords = extractKeywords(script);
+  keywordsPreview.innerHTML = keywords.map(k => `<span class="keyword-chip">${k}</span>`).join('');
+  const query = encodeURIComponent(keywords.slice(0,3).join(' '));
+
+  imgArea.innerHTML = '<div class="loading">Images dhoond rahe hain...</div>';
+  vidArea.innerHTML = '<div class="loading">Videos dhoond rahe hain...</div>';
+
+  // Images — via our own backend, key never touches the browser
+  try {
+    const res = await fetch(`/api/pixabay?type=image&q=${query}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'server error');
+    if (!data.hits || data.hits.length === 0) {
+      imgArea.innerHTML = '<div class="empty-state">Koi matching image nahi mila.</div>';
+      document.getElementById('imageCount').textContent = '';
+    } else {
+      document.getElementById('imageCount').textContent = `${data.hits.length} mile`;
+      imgArea.innerHTML = renderCards(data.hits, 'image');
+    }
+  } catch (err) {
+    imgArea.innerHTML = `<div class="empty-state">Image search fail: ${err.message}</div>`;
+  }
+
+  // Videos — via our own backend
+  try {
+    const res = await fetch(`/api/pixabay?type=video&q=${query}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'server error');
+    if (!data.hits || data.hits.length === 0) {
+      vidArea.innerHTML = '<div class="empty-state">Koi matching video nahi mila.</div>';
+      document.getElementById('videoCount').textContent = '';
+    } else {
+      document.getElementById('videoCount').textContent = `${data.hits.length} mile`;
+      vidArea.innerHTML = renderCards(data.hits, 'video');
+    }
+  } catch (err) {
+    vidArea.innerHTML = `<div class="empty-state">Video search fail: ${err.message}</div>`;
+  }
+});
+
+// Event delegation for Timeline / Download buttons rendered dynamically above
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  if (btn.dataset.action === 'timeline') {
+    timeline.push({ id: btn.dataset.id + '-' + Date.now(), name: btn.dataset.name, source: btn.dataset.source, url: btn.dataset.url });
+    renderTimeline();
+  } else if (btn.dataset.action === 'download') {
+    downloadFile(btn.dataset.url, btn.dataset.filename, btn);
+  } else if (btn.dataset.action === 'remove-timeline') {
+    timeline = timeline.filter(t => t.id !== btn.dataset.id);
+    renderTimeline();
+  } else if (btn.dataset.action === 'download-timeline') {
+    downloadFile(btn.dataset.url, btn.dataset.filename, btn);
+  }
+});
+
+async function downloadFile(url, filename, btn) {
+  const originalText = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    if (url.startsWith('blob:')) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } else {
+      const res = await fetchWithFallback(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+    }
+  } catch (err) {
+    alert('Download nahi ho paya: ' + err.message + '. File naye tab mein khul rahi hai — wahan se manually save karo.');
+    window.open(url, '_blank');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+  }
+}
+
+function renderTimeline() {
+  const area = document.getElementById('timelineArea');
+  document.getElementById('timelineCount').textContent = `${timeline.length} clips`;
+  if (timeline.length === 0) {
+    area.innerHTML = '<div class="empty-state">Koi clip select nahi hui abhi.</div>';
+    return;
+  }
+  area.innerHTML = timeline.map((t, i) => {
+    const safeName = t.name.replace(/[^a-zA-Z0-9._ -]/g, '');
+    const filename = t.source === 'apna upload' ? safeName : `${safeName}.mp4`;
+    return `
+    <div class="timeline-row">
+      <span class="idx">${String(i+1).padStart(2,'0')}</span>
+      <span class="name">${t.name}</span>
+      <span class="src">${t.source}</span>
+      <button class="btn-download-row" data-action="download-timeline" data-url="${t.url}" data-filename="${filename}">Download</button>
+      <button data-action="remove-timeline" data-id="${t.id}">hatao</button>
+    </div>`;
+  }).join('');
+}
+
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('drag'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
+uploadZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+function handleFiles(files) {
+  Array.from(files).forEach(file => {
+    const url = URL.createObjectURL(file);
+    timeline.push({ id: 'local-' + Date.now() + Math.random(), name: file.name, source: 'apna upload', url });
+  });
+  renderTimeline();
+}
+</script>
+</body>
+</html>
