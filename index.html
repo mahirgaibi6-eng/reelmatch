@@ -148,7 +148,13 @@
   }
   .generate-note strong { color: var(--text); }
 
-  .loading { color: var(--muted); font-size: 14px; padding: 10px 0; }
+  .loading { color: var(--muted); font-size: 14px; padding: 10px 0; display: flex; align-items: center; gap: 10px; }
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--teal);
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -306,8 +312,8 @@ async function performSearch(scriptText) {
   keywordsPreview.innerHTML = keywords.map(k => `<span class="keyword-chip">${k}</span>`).join('');
   const query = encodeURIComponent(keywords.slice(0,3).join(' '));
 
-  imgArea.innerHTML = '<div class="loading">Images dhoond rahe hain...</div>';
-  vidArea.innerHTML = '<div class="loading">Videos dhoond rahe hain...</div>';
+  imgArea.innerHTML = '<div class="loading"><span class="spinner"></span>Images dhoond rahe hain...</div>';
+  vidArea.innerHTML = '<div class="loading"><span class="spinner"></span>Videos dhoond rahe hain...</div>';
 
   try {
     const res = await fetch(`/api/pixabay?type=image&q=${query}`);
@@ -414,7 +420,11 @@ document.addEventListener('click', (e) => {
 
 async function downloadFile(url, filename, btn) {
   const originalText = btn ? btn.textContent : null;
-  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '0%'; }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 40000); // 40s max
+
   try {
     if (url.startsWith('blob:')) {
       const a = document.createElement('a');
@@ -424,8 +434,30 @@ async function downloadFile(url, filename, btn) {
       a.click();
       a.remove();
     } else {
-      const res = await fetchWithFallback(url);
-      const blob = await res.blob();
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new Error('status ' + res.status);
+
+      const contentLength = res.headers.get('content-length');
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+      const reader = res.body.getReader();
+      let received = 0;
+      const chunks = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (btn) {
+          if (total) {
+            btn.textContent = Math.round((received / total) * 100) + '%';
+          } else {
+            btn.textContent = Math.round(received / 1024) + 'KB';
+          }
+        }
+      }
+
+      const blob = new Blob(chunks);
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
@@ -436,9 +468,11 @@ async function downloadFile(url, filename, btn) {
       setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
     }
   } catch (err) {
-    alert('Download nahi ho paya: ' + err.message + '. File naye tab mein khul rahi hai — wahan se manually save karo.');
+    const msg = err.name === 'AbortError' ? 'Download bahut slow hai, timeout ho gaya' : err.message;
+    alert('Download nahi ho paya: ' + msg + '. File naye tab mein khul rahi hai — wahan se manually save karo.');
     window.open(url, '_blank');
   } finally {
+    clearTimeout(timeoutId);
     if (btn) { btn.disabled = false; btn.textContent = originalText; }
   }
 }
