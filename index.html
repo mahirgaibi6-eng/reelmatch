@@ -165,6 +165,11 @@
   </div>
 
   <label class="field-label">Script / lyrics / mood describe karo</label>
+  <div class="upload-zone" id="songUploadZone" style="margin-top:0; margin-bottom:14px;">
+    Ya apna <strong>gaana/audio</strong> upload karo — uske lyrics samajh kar niche wale box mein daal denge aur khud match dhoondenge
+    <input type="file" id="songFileInput" accept="audio/*,video/*" />
+  </div>
+  <div id="transcribeStatus" style="display:none; font-size:13px; color:var(--muted); margin-bottom:14px;"></div>
   <textarea id="scriptInput" placeholder="Jaise: ek akela traveler pahaadon mein sunset dekh raha hai, sukoon aur azaadi ka feel..."></textarea>
   <div class="action-row">
     <button class="btn-primary" id="findBtn">Matches dhundo</button>
@@ -287,25 +292,23 @@ function renderCards(hits, type) {
   }).join('')}</div>`;
 }
 
-document.getElementById('findBtn').addEventListener('click', async () => {
-  const script = document.getElementById('scriptInput').value.trim();
+async function performSearch(scriptText) {
   const imgArea = document.getElementById('imageResultsArea');
   const vidArea = document.getElementById('videoResultsArea');
   const keywordsPreview = document.getElementById('keywordsPreview');
 
-  if (!script) {
+  if (!scriptText) {
     imgArea.innerHTML = '<div class="empty-state">Pehle script ya mood likho.</div>';
     return;
   }
 
-  const keywords = extractKeywords(script);
+  const keywords = extractKeywords(scriptText);
   keywordsPreview.innerHTML = keywords.map(k => `<span class="keyword-chip">${k}</span>`).join('');
   const query = encodeURIComponent(keywords.slice(0,3).join(' '));
 
   imgArea.innerHTML = '<div class="loading">Images dhoond rahe hain...</div>';
   vidArea.innerHTML = '<div class="loading">Videos dhoond rahe hain...</div>';
 
-  // Images — via our own backend, key never touches the browser
   try {
     const res = await fetch(`/api/pixabay?type=image&q=${query}`);
     const data = await res.json();
@@ -321,7 +324,6 @@ document.getElementById('findBtn').addEventListener('click', async () => {
     imgArea.innerHTML = `<div class="empty-state">Image search fail: ${err.message}</div>`;
   }
 
-  // Videos — via our own backend
   try {
     const res = await fetch(`/api/pixabay?type=video&q=${query}`);
     const data = await res.json();
@@ -335,6 +337,57 @@ document.getElementById('findBtn').addEventListener('click', async () => {
     }
   } catch (err) {
     vidArea.innerHTML = `<div class="empty-state">Video search fail: ${err.message}</div>`;
+  }
+}
+
+document.getElementById('findBtn').addEventListener('click', () => {
+  performSearch(document.getElementById('scriptInput').value.trim());
+});
+
+// ---- Song/audio upload → transcribe → auto-fill + auto-search ----
+document.getElementById('songFileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('transcribeStatus');
+  statusEl.style.display = 'block';
+  statusEl.textContent = 'Gaana upload ho raha hai...';
+
+  try {
+    const startRes = await fetch('/api/transcribe-start', { method: 'POST', body: file });
+    const startData = await startRes.json();
+    if (!startRes.ok || !startData.id) throw new Error(startData.error || 'transcription start failed');
+
+    statusEl.textContent = 'Lyrics samajh rahe hain, thoda intezaar karo...';
+
+    let attempts = 0;
+    const maxAttempts = 60; // ~3 minutes at 3s interval
+    const poll = async () => {
+      attempts++;
+      const statusRes = await fetch(`/api/transcribe-status?id=${startData.id}`);
+      const statusData = await statusRes.json();
+
+      if (statusData.status === 'completed') {
+        statusEl.textContent = 'Lyrics mil gaye! Ab match dhoond rahe hain...';
+        const transcript = statusData.text || '';
+        document.getElementById('scriptInput').value = transcript;
+        await performSearch(transcript);
+        setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+        return;
+      }
+      if (statusData.status === 'error') {
+        statusEl.textContent = 'Transcription fail: ' + (statusData.error || 'unknown error');
+        return;
+      }
+      if (attempts >= maxAttempts) {
+        statusEl.textContent = 'Bahut time lag raha hai, dobara try karo.';
+        return;
+      }
+      statusEl.textContent = `Lyrics samajh rahe hain (${statusData.status})... ${attempts * 3}s`;
+      setTimeout(poll, 3000);
+    };
+    poll();
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
   }
 });
 
