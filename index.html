@@ -108,6 +108,18 @@
   }
   .frame-holes span { width: 6px; height: 6px; border-radius: 2px; background: #2B303B; }
   .card video, .card img { width: 100%; height: 124px; object-fit: cover; display: block; background: #000; }
+  .img-wrap { position: relative; width: 100%; height: 124px; background: #0B0D11; overflow: hidden; }
+  .img-wrap img { opacity: 0; transition: opacity 0.3s ease; }
+  .img-wrap img.loaded { opacity: 1; }
+  .img-spinner {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  }
+  .img-spinner::after {
+    content: ''; width: 22px; height: 22px; border-radius: 50%;
+    border: 2.5px solid var(--border); border-top-color: var(--teal);
+    animation: spin 0.7s linear infinite;
+  }
+  .img-spinner.hidden { display: none; }
   .card .meta { padding: 12px 14px 14px; }
   .card .meta .tags { font-size: 12px; color: var(--muted); margin-bottom: 10px; height: 32px; overflow: hidden; }
   .card .meta button { width: 100%; font-size: 13px; padding: 9px; }
@@ -205,6 +217,16 @@
 
   <section class="results">
     <div class="section-head">
+      <h2>Openverse se match (extra variety)</h2>
+      <span class="count" id="openverseCount"></span>
+    </div>
+    <div id="openverseResultsArea">
+      <div class="empty-state">Ab tak koi search nahi hui.</div>
+    </div>
+  </section>
+
+  <section class="results">
+    <div class="section-head">
       <h2>Audio / Music (sirf apna upload)</h2>
     </div>
     <div class="empty-state" style="border-top:none; padding-top:0; margin-bottom:-4px;">Pixabay ke paas music/audio ke liye public API nahi hai — is category mein sirf apni file upload chalegi.</div>
@@ -269,8 +291,10 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   document.getElementById('keywordsPreview').innerHTML = '';
   document.getElementById('imageResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
   document.getElementById('videoResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
+  document.getElementById('openverseResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
   document.getElementById('imageCount').textContent = '';
   document.getElementById('videoCount').textContent = '';
+  document.getElementById('openverseCount').textContent = '';
 });
 
 function renderCards(hits, type) {
@@ -279,8 +303,6 @@ function renderCards(hits, type) {
     const downloadUrl = type === 'image' ? (v.largeImageURL || v.webformatURL) : (v.videos.medium ? v.videos.medium.url : v.videos.tiny.url);
     const label = v.tags.split(',')[0].trim();
     const ext = type === 'image' ? 'jpg' : 'mp4';
-    // Display uses Pixabay's small preview (loads almost instantly, like the video thumbnails) —
-    // the full-size image is only fetched later, when the user actually downloads it.
     const imgSrc = type === 'image' ? (v.previewURL || v.webformatURL) : '';
     const media = type === 'image'
       ? `<img src="${imgSrc}" loading="lazy" alt="${label}">`
@@ -295,6 +317,29 @@ function renderCards(hits, type) {
           <div class="btn-row">
             <button class="btn-ghost" data-action="timeline" data-id="${v.id}" data-name="${label.replace(/"/g,'')}" data-source="Pixabay" data-url="${downloadUrl}">Timeline</button>
             <button class="btn-download" data-action="download" data-url="${downloadUrl}" data-filename="${label.replace(/[^a-zA-Z0-9._ -]/g,'')}-${v.id}.${ext}">Download</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('')}</div>`;
+}
+
+function renderOpenverseCards(results) {
+  return `<div class="filmstrip">${results.map((r, i) => {
+    const label = (r.title || 'untitled').slice(0, 40);
+    const imgSrc = r.thumbnail || r.url;
+    const downloadUrl = r.url;
+    const creator = r.creator ? `by ${r.creator}` : '';
+    const license = r.license ? r.license.toUpperCase() : '';
+    return `
+      <div class="card">
+        ${i === 0 ? '<div class="badge-best">best match</div>' : ''}
+        <div class="frame-holes">${'<span></span>'.repeat(6)}</div>
+        <img src="${imgSrc}" loading="lazy" alt="${label.replace(/"/g,'')}">
+        <div class="meta">
+          <div class="tags">${label} — <span style="color:var(--muted)">${creator} ${license}</span></div>
+          <div class="btn-row">
+            <button class="btn-ghost" data-action="timeline" data-id="ov-${r.id}" data-name="${label.replace(/"/g,'')}" data-source="Openverse" data-url="${downloadUrl}">Timeline</button>
+            <button class="btn-download" data-action="download" data-url="${downloadUrl}" data-filename="${label.replace(/[^a-zA-Z0-9._ -]/g,'')}-ov.jpg">Download</button>
           </div>
         </div>
       </div>`;
@@ -317,6 +362,8 @@ async function performSearch(scriptText) {
 
   imgArea.innerHTML = '<div class="loading"><span class="spinner"></span>Images dhoond rahe hain...</div>';
   vidArea.innerHTML = '<div class="loading"><span class="spinner"></span>Videos dhoond rahe hain...</div>';
+  const ovArea = document.getElementById('openverseResultsArea');
+  ovArea.innerHTML = '<div class="loading"><span class="spinner"></span>Openverse dhoond rahe hain...</div>';
 
   try {
     const res = await fetch(`/api/pixabay?type=image&q=${query}`);
@@ -346,6 +393,22 @@ async function performSearch(scriptText) {
     }
   } catch (err) {
     vidArea.innerHTML = `<div class="empty-state">Video search fail: ${err.message}</div>`;
+  }
+
+  // Openverse — free, no API key needed, called directly from the browser
+  try {
+    const res = await fetch(`https://api.openverse.org/v1/images/?q=${query}&page_size=12`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'server error');
+    if (!data.results || data.results.length === 0) {
+      ovArea.innerHTML = '<div class="empty-state">Koi matching image nahi mila.</div>';
+      document.getElementById('openverseCount').textContent = '';
+    } else {
+      document.getElementById('openverseCount').textContent = `${data.results.length} mile`;
+      ovArea.innerHTML = renderOpenverseCards(data.results);
+    }
+  } catch (err) {
+    ovArea.innerHTML = `<div class="empty-state">Openverse search fail: ${err.message}</div>`;
   }
 }
 
