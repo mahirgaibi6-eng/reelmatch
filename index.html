@@ -326,7 +326,7 @@ function renderCards(hits, type) {
 function renderOpenverseCards(results) {
   return `<div class="filmstrip">${results.map((r, i) => {
     const label = (r.title || 'untitled').slice(0, 40);
-    const imgSrc = r.thumbnail || r.url;
+    const imgSrc = `https://api.openverse.org/v1/images/${r.id}/thumb/`;
     const downloadUrl = r.url;
     const creator = r.creator ? `by ${r.creator}` : '';
     const license = r.license ? r.license.toUpperCase() : '';
@@ -395,7 +395,6 @@ async function performSearch(scriptText) {
     vidArea.innerHTML = `<div class="empty-state">Video search fail: ${err.message}</div>`;
   }
 
-  // Openverse — free, no API key needed, called directly from the browser
   try {
     const res = await fetch(`https://api.openverse.org/v1/images/?q=${query}&page_size=12`);
     const data = await res.json();
