@@ -237,6 +237,26 @@
 
   <section class="results">
     <div class="section-head">
+      <h2>Pexels images</h2>
+      <span class="count" id="pexelsImageCount"></span>
+    </div>
+    <div id="pexelsImageResultsArea">
+      <div class="empty-state">Ab tak koi search nahi hui.</div>
+    </div>
+  </section>
+
+  <section class="results">
+    <div class="section-head">
+      <h2>Pexels videos</h2>
+      <span class="count" id="pexelsVideoCount"></span>
+    </div>
+    <div id="pexelsVideoResultsArea">
+      <div class="empty-state">Ab tak koi search nahi hui.</div>
+    </div>
+  </section>
+
+  <section class="results">
+    <div class="section-head">
       <h2>Audio / Music</h2>
       <span class="count" id="openverseAudioCount"></span>
     </div>
@@ -268,17 +288,12 @@
 </div>
 
 <script>
-// The Pixabay API key now lives only on the server (see /api/pixabay.js).
-// This page never holds or sends the key — it just calls our own /api/pixabay
-// endpoint, which is safe to expose publicly.
-
 async function fetchWithFallback(url) {
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error('status ' + res.status);
     return res;
   } catch (err) {
-    // Local file:// pages can get blocked by CORS — retry through a proxy
     const proxied = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
     const res2 = await fetch(proxied);
     if (!res2.ok) throw new Error('proxy fetch failed too: ' + res2.status);
@@ -307,10 +322,14 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   document.getElementById('videoResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
   document.getElementById('openverseResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
   document.getElementById('openverseAudioResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
+  document.getElementById('pexelsImageResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
+  document.getElementById('pexelsVideoResultsArea').innerHTML = '<div class="empty-state">Ab tak koi search nahi hui.</div>';
   document.getElementById('imageCount').textContent = '';
   document.getElementById('videoCount').textContent = '';
   document.getElementById('openverseCount').textContent = '';
   document.getElementById('openverseAudioCount').textContent = '';
+  document.getElementById('pexelsImageCount').textContent = '';
+  document.getElementById('pexelsVideoCount').textContent = '';
 });
 
 function renderCards(hits, type) {
@@ -382,6 +401,52 @@ function renderOpenverseAudioCards(results) {
   }).join('');
 }
 
+function renderPexelsImageCards(photos) {
+  return `<div class="filmstrip">${photos.map((p, i) => {
+    const label = (p.alt || 'photo').slice(0, 40) || 'photo';
+    const imgSrc = p.src.medium;
+    const downloadUrl = p.src.original;
+    return `
+      <div class="card">
+        ${i === 0 ? '<div class="badge-best">best match</div>' : ''}
+        <div class="frame-holes">${'<span></span>'.repeat(6)}</div>
+        <img src="${imgSrc}" loading="lazy" alt="${label.replace(/"/g,'')}">
+        <div class="meta">
+          <div class="tags">${label} — <span style="color:var(--muted)">by ${p.photographer || 'unknown'}</span></div>
+          <div class="btn-row">
+            <button class="btn-ghost" data-action="timeline" data-id="pex-${p.id}" data-name="${label.replace(/"/g,'')}" data-source="Pexels" data-url="${downloadUrl}">Timeline</button>
+            <button class="btn-download" data-action="download" data-url="${downloadUrl}" data-filename="${label.replace(/[^a-zA-Z0-9._ -]/g,'')}-pex.jpg">Download</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('')}</div>`;
+}
+
+function renderPexelsVideoCards(videos) {
+  return `<div class="filmstrip">${videos.map((v, i) => {
+    const thumb = (v.video_pictures && v.video_pictures[0]) ? v.video_pictures[0].picture : '';
+    const files = v.video_files || [];
+    const small = files.find(f => f.quality === 'sd') || files[0];
+    const large = files.find(f => f.quality === 'hd') || files[0];
+    const videoUrl = small ? small.link : '';
+    const downloadUrl = large ? large.link : videoUrl;
+    const label = `Pexels video ${v.id}`;
+    return `
+      <div class="card">
+        ${i === 0 ? '<div class="badge-best">best match</div>' : ''}
+        <div class="frame-holes">${'<span></span>'.repeat(6)}</div>
+        <video muted loop playsinline autoplay poster="${thumb}"><source src="${videoUrl}" type="video/mp4"></video>
+        <div class="meta">
+          <div class="tags">by ${v.user ? v.user.name : 'unknown'}</div>
+          <div class="btn-row">
+            <button class="btn-ghost" data-action="timeline" data-id="pexv-${v.id}" data-name="${label}" data-source="Pexels" data-url="${downloadUrl}">Timeline</button>
+            <button class="btn-download" data-action="download" data-url="${downloadUrl}" data-filename="pexels-${v.id}.mp4">Download</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('')}</div>`;
+}
+
 async function performSearch(scriptText) {
   const imgArea = document.getElementById('imageResultsArea');
   const vidArea = document.getElementById('videoResultsArea');
@@ -402,6 +467,10 @@ async function performSearch(scriptText) {
   ovArea.innerHTML = '<div class="loading"><span class="spinner"></span>Openverse dhoond rahe hain...</div>';
   const ovAudioArea = document.getElementById('openverseAudioResultsArea');
   ovAudioArea.innerHTML = '<div class="loading"><span class="spinner"></span>Audio dhoond rahe hain...</div>';
+  const pexImgArea = document.getElementById('pexelsImageResultsArea');
+  pexImgArea.innerHTML = '<div class="loading"><span class="spinner"></span>Pexels images dhoond rahe hain...</div>';
+  const pexVidArea = document.getElementById('pexelsVideoResultsArea');
+  pexVidArea.innerHTML = '<div class="loading"><span class="spinner"></span>Pexels videos dhoond rahe hain...</div>';
 
   try {
     const res = await fetch(`/api/pixabay?type=image&q=${query}`);
@@ -462,13 +531,42 @@ async function performSearch(scriptText) {
   } catch (err) {
     ovAudioArea.innerHTML = `<div class="empty-state">Audio search fail: ${err.message}</div>`;
   }
+
+  try {
+    const res = await fetch(`/api/pexels?type=image&q=${query}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'server error');
+    if (!data.photos || data.photos.length === 0) {
+      pexImgArea.innerHTML = '<div class="empty-state">Koi matching image nahi mila.</div>';
+      document.getElementById('pexelsImageCount').textContent = '';
+    } else {
+      document.getElementById('pexelsImageCount').textContent = `${data.photos.length} mile`;
+      pexImgArea.innerHTML = renderPexelsImageCards(data.photos);
+    }
+  } catch (err) {
+    pexImgArea.innerHTML = `<div class="empty-state">Pexels image search fail: ${err.message}</div>`;
+  }
+
+  try {
+    const res = await fetch(`/api/pexels?type=video&q=${query}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'server error');
+    if (!data.videos || data.videos.length === 0) {
+      pexVidArea.innerHTML = '<div class="empty-state">Koi matching video nahi mila.</div>';
+      document.getElementById('pexelsVideoCount').textContent = '';
+    } else {
+      document.getElementById('pexelsVideoCount').textContent = `${data.videos.length} mile`;
+      pexVidArea.innerHTML = renderPexelsVideoCards(data.videos);
+    }
+  } catch (err) {
+    pexVidArea.innerHTML = `<div class="empty-state">Pexels video search fail: ${err.message}</div>`;
+  }
 }
 
 document.getElementById('findBtn').addEventListener('click', () => {
   performSearch(document.getElementById('scriptInput').value.trim());
 });
 
-// ---- Song/audio upload → transcribe → auto-fill + auto-search ----
 const songUploadZone = document.getElementById('songUploadZone');
 const songFileInput = document.getElementById('songFileInput');
 songUploadZone.addEventListener('click', () => songFileInput.click());
@@ -488,7 +586,7 @@ document.getElementById('songFileInput').addEventListener('change', async (e) =>
     statusEl.textContent = 'Lyrics samajh rahe hain, thoda intezaar karo...';
 
     let attempts = 0;
-    const maxAttempts = 60; // ~3 minutes at 3s interval
+    const maxAttempts = 60;
     const poll = async () => {
       attempts++;
       const statusRes = await fetch(`/api/transcribe-status?id=${startData.id}`);
@@ -519,7 +617,6 @@ document.getElementById('songFileInput').addEventListener('change', async (e) =>
   }
 });
 
-// Event delegation for Timeline / Download buttons rendered dynamically above
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
@@ -541,7 +638,7 @@ async function downloadFile(url, filename, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '0%'; }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 40000); // 40s max
+  const timeoutId = setTimeout(() => controller.abort(), 40000);
 
   try {
     if (url.startsWith('blob:')) {
