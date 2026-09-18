@@ -6,6 +6,7 @@
 <title>Reelmatch — script se video match</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 <style>
   :root{
     --bg: #0F1115;
@@ -203,6 +204,10 @@
     <button class="btn-primary" id="findBtn">Matches dhundo</button>
     <button class="btn-ghost" id="clearBtn">Clear</button>
   </div>
+  <div class="action-row" style="margin-top:10px;">
+    <button class="btn-primary" id="autoGenerateBtn" style="background:var(--amber); color:#2B1B04;">🎬 Prompt se Auto Aggressive Video Banao</button>
+  </div>
+  <div id="autoGenerateStatus" style="display:none; font-size:13px; color:var(--muted); margin-top:10px;"></div>
   <div class="keywords-preview" id="keywordsPreview"></div>
 
   <section class="results">
@@ -285,15 +290,41 @@
     </div>
   </section>
 
+  <section class="results">
+    <div class="section-head">
+      <h2>Aggressive Edit (beta)</h2>
+    </div>
+    <div class="empty-state" style="border-top:none; padding-top:0; margin-bottom:14px;">
+      Timeline ke images/videos ko fast hard-cuts, contrast punch, aur background music ke saath jodkar ek video banata hai.
+      Processing phone ke browser mein hi hoti hai — thoda time lag sakta hai (30 sec – 3 min), aur bahut zyada/lambe clips se phone slow ho sakta hai.
+      Behtar rahega: 3-8 visual clips, aur ek background music track timeline mein.
+    </div>
+    <div class="action-row">
+      <label class="field-label" style="margin:0;">Har clip: </label>
+      <input type="number" id="clipDuration" value="0.6" step="0.1" min="0.3" max="3" style="width:70px; background:var(--panel); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px; font-family:'Inter',sans-serif;">
+      <span style="color:var(--muted); font-size:13px;">second dikhega</span>
+    </div>
+    <div class="action-row">
+      <button class="btn-primary" id="aggressiveEditBtn">Aggressive Edit Banao</button>
+    </div>
+    <div id="editStatus" style="display:none; font-size:13px; color:var(--muted); margin-top:14px;"></div>
+    <div id="editResultArea" style="margin-top:16px;"></div>
+  </section>
+
 </div>
 
 <script>
+// The Pixabay API key now lives only on the server (see /api/pixabay.js).
+// This page never holds or sends the key — it just calls our own /api/pixabay
+// endpoint, which is safe to expose publicly.
+
 async function fetchWithFallback(url) {
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error('status ' + res.status);
     return res;
   } catch (err) {
+    // Local file:// pages can get blocked by CORS — retry through a proxy
     const proxied = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
     const res2 = await fetch(proxied);
     if (!res2.ok) throw new Error('proxy fetch failed too: ' + res2.status);
@@ -304,6 +335,7 @@ async function fetchWithFallback(url) {
 const STOPWORDS = new Set(['ek','ka','ki','ke','mein','me','hai','aur','se','pe','par','ho','raha','rahi','rahe','the','a','an','the','of','in','on','and','is','are','the','to','for','with','feel','ka','ko']);
 
 let timeline = [];
+let lastSearch = { pixabayImages: [], pixabayVideos: [], openverseImages: [], openverseAudio: [], pexelsImages: [], pexelsVideos: [] };
 
 function extractKeywords(text) {
   const words = text.toLowerCase()
@@ -338,6 +370,8 @@ function renderCards(hits, type) {
     const downloadUrl = type === 'image' ? (v.largeImageURL || v.webformatURL) : (v.videos.medium ? v.videos.medium.url : v.videos.tiny.url);
     const label = v.tags.split(',')[0].trim();
     const ext = type === 'image' ? 'jpg' : 'mp4';
+    // Display uses Pixabay's small preview (loads almost instantly, like the video thumbnails) —
+    // the full-size image is only fetched later, when the user actually downloads it.
     const imgSrc = type === 'image' ? (v.previewURL || v.webformatURL) : '';
     const media = type === 'image'
       ? `<img src="${imgSrc}" loading="lazy" alt="${label}">`
@@ -350,7 +384,7 @@ function renderCards(hits, type) {
         <div class="meta">
           <div class="tags">${v.tags}</div>
           <div class="btn-row">
-            <button class="btn-ghost" data-action="timeline" data-id="${v.id}" data-name="${label.replace(/"/g,'')}" data-source="Pixabay" data-url="${downloadUrl}">Timeline</button>
+            <button class="btn-ghost" data-action="timeline" data-id="${v.id}" data-name="${label.replace(/"/g,'')}" data-source="Pixabay" data-url="${downloadUrl}" data-type="${type}">Timeline</button>
             <button class="btn-download" data-action="download" data-url="${downloadUrl}" data-filename="${label.replace(/[^a-zA-Z0-9._ -]/g,'')}-${v.id}.${ext}">Download</button>
           </div>
         </div>
@@ -361,6 +395,9 @@ function renderCards(hits, type) {
 function renderOpenverseCards(results) {
   return `<div class="filmstrip">${results.map((r, i) => {
     const label = (r.title || 'untitled').slice(0, 40);
+    // Always use Openverse's dedicated thumbnail endpoint — small, fast, consistent
+    // (the "thumbnail" field in the API response is sometimes missing, which was
+    // causing it to fall back to the full-size image and load slowly).
     const imgSrc = `https://api.openverse.org/v1/images/${r.id}/thumb/`;
     const downloadUrl = r.url;
     const creator = r.creator ? `by ${r.creator}` : '';
@@ -373,7 +410,7 @@ function renderOpenverseCards(results) {
         <div class="meta">
           <div class="tags">${label} — <span style="color:var(--muted)">${creator} ${license}</span></div>
           <div class="btn-row">
-            <button class="btn-ghost" data-action="timeline" data-id="ov-${r.id}" data-name="${label.replace(/"/g,'')}" data-source="Openverse" data-url="${downloadUrl}">Timeline</button>
+            <button class="btn-ghost" data-action="timeline" data-id="ov-${r.id}" data-name="${label.replace(/"/g,'')}" data-source="Openverse" data-url="${downloadUrl}" data-type="image">Timeline</button>
             <button class="btn-download" data-action="download" data-url="${downloadUrl}" data-filename="${label.replace(/[^a-zA-Z0-9._ -]/g,'')}-ov.jpg">Download</button>
           </div>
         </div>
@@ -394,7 +431,7 @@ function renderOpenverseAudioCards(results) {
         <div class="audio-meta">${creator} ${license} ${duration}</div>
         <audio controls preload="none" src="${audioUrl}"></audio>
         <div class="btn-row">
-          <button class="btn-ghost" data-action="timeline" data-id="ova-${r.id}" data-name="${label.replace(/"/g,'')}" data-source="Openverse Audio" data-url="${audioUrl}">Timeline</button>
+          <button class="btn-ghost" data-action="timeline" data-id="ova-${r.id}" data-name="${label.replace(/"/g,'')}" data-source="Openverse Audio" data-url="${audioUrl}" data-type="audio">Timeline</button>
           <button class="btn-download" data-action="download" data-url="${audioUrl}" data-filename="${label.replace(/[^a-zA-Z0-9._ -]/g,'')}-ova.mp3">Download</button>
         </div>
       </div>`;
@@ -414,7 +451,7 @@ function renderPexelsImageCards(photos) {
         <div class="meta">
           <div class="tags">${label} — <span style="color:var(--muted)">by ${p.photographer || 'unknown'}</span></div>
           <div class="btn-row">
-            <button class="btn-ghost" data-action="timeline" data-id="pex-${p.id}" data-name="${label.replace(/"/g,'')}" data-source="Pexels" data-url="${downloadUrl}">Timeline</button>
+            <button class="btn-ghost" data-action="timeline" data-id="pex-${p.id}" data-name="${label.replace(/"/g,'')}" data-source="Pexels" data-url="${downloadUrl}" data-type="image">Timeline</button>
             <button class="btn-download" data-action="download" data-url="${downloadUrl}" data-filename="${label.replace(/[^a-zA-Z0-9._ -]/g,'')}-pex.jpg">Download</button>
           </div>
         </div>
@@ -439,7 +476,7 @@ function renderPexelsVideoCards(videos) {
         <div class="meta">
           <div class="tags">by ${v.user ? v.user.name : 'unknown'}</div>
           <div class="btn-row">
-            <button class="btn-ghost" data-action="timeline" data-id="pexv-${v.id}" data-name="${label}" data-source="Pexels" data-url="${downloadUrl}">Timeline</button>
+            <button class="btn-ghost" data-action="timeline" data-id="pexv-${v.id}" data-name="${label}" data-source="Pexels" data-url="${downloadUrl}" data-type="video">Timeline</button>
             <button class="btn-download" data-action="download" data-url="${downloadUrl}" data-filename="pexels-${v.id}.mp4">Download</button>
           </div>
         </div>
@@ -482,6 +519,7 @@ async function performSearch(scriptText) {
     } else {
       document.getElementById('imageCount').textContent = `${data.hits.length} mile`;
       imgArea.innerHTML = renderCards(data.hits, 'image');
+      lastSearch.pixabayImages = data.hits;
     }
   } catch (err) {
     imgArea.innerHTML = `<div class="empty-state">Image search fail: ${err.message}</div>`;
@@ -497,11 +535,13 @@ async function performSearch(scriptText) {
     } else {
       document.getElementById('videoCount').textContent = `${data.hits.length} mile`;
       vidArea.innerHTML = renderCards(data.hits, 'video');
+      lastSearch.pixabayVideos = data.hits;
     }
   } catch (err) {
     vidArea.innerHTML = `<div class="empty-state">Video search fail: ${err.message}</div>`;
   }
 
+  // Openverse — free, no API key needed, called directly from the browser
   try {
     const res = await fetch(`https://api.openverse.org/v1/images/?q=${query}&page_size=12`);
     const data = await res.json();
@@ -512,11 +552,13 @@ async function performSearch(scriptText) {
     } else {
       document.getElementById('openverseCount').textContent = `${data.results.length} mile`;
       ovArea.innerHTML = renderOpenverseCards(data.results);
+      lastSearch.openverseImages = data.results;
     }
   } catch (err) {
     ovArea.innerHTML = `<div class="empty-state">Openverse search fail: ${err.message}</div>`;
   }
 
+  // Openverse audio — free, no API key needed
   try {
     const res = await fetch(`https://api.openverse.org/v1/audio/?q=${query}&page_size=8`);
     const data = await res.json();
@@ -527,11 +569,13 @@ async function performSearch(scriptText) {
     } else {
       document.getElementById('openverseAudioCount').textContent = `${data.results.length} mile`;
       ovAudioArea.innerHTML = renderOpenverseAudioCards(data.results);
+      lastSearch.openverseAudio = data.results;
     }
   } catch (err) {
     ovAudioArea.innerHTML = `<div class="empty-state">Audio search fail: ${err.message}</div>`;
   }
 
+  // Pexels images — via our own backend, key never touches the browser
   try {
     const res = await fetch(`/api/pexels?type=image&q=${query}`);
     const data = await res.json();
@@ -542,11 +586,13 @@ async function performSearch(scriptText) {
     } else {
       document.getElementById('pexelsImageCount').textContent = `${data.photos.length} mile`;
       pexImgArea.innerHTML = renderPexelsImageCards(data.photos);
+      lastSearch.pexelsImages = data.photos;
     }
   } catch (err) {
     pexImgArea.innerHTML = `<div class="empty-state">Pexels image search fail: ${err.message}</div>`;
   }
 
+  // Pexels videos
   try {
     const res = await fetch(`/api/pexels?type=video&q=${query}`);
     const data = await res.json();
@@ -557,6 +603,7 @@ async function performSearch(scriptText) {
     } else {
       document.getElementById('pexelsVideoCount').textContent = `${data.videos.length} mile`;
       pexVidArea.innerHTML = renderPexelsVideoCards(data.videos);
+      lastSearch.pexelsVideos = data.videos;
     }
   } catch (err) {
     pexVidArea.innerHTML = `<div class="empty-state">Pexels video search fail: ${err.message}</div>`;
@@ -567,6 +614,7 @@ document.getElementById('findBtn').addEventListener('click', () => {
   performSearch(document.getElementById('scriptInput').value.trim());
 });
 
+// ---- Song/audio upload → transcribe → auto-fill + auto-search ----
 const songUploadZone = document.getElementById('songUploadZone');
 const songFileInput = document.getElementById('songFileInput');
 songUploadZone.addEventListener('click', () => songFileInput.click());
@@ -586,7 +634,7 @@ document.getElementById('songFileInput').addEventListener('change', async (e) =>
     statusEl.textContent = 'Lyrics samajh rahe hain, thoda intezaar karo...';
 
     let attempts = 0;
-    const maxAttempts = 60;
+    const maxAttempts = 60; // ~3 minutes at 3s interval
     const poll = async () => {
       attempts++;
       const statusRes = await fetch(`/api/transcribe-status?id=${startData.id}`);
@@ -617,11 +665,12 @@ document.getElementById('songFileInput').addEventListener('change', async (e) =>
   }
 });
 
+// Event delegation for Timeline / Download buttons rendered dynamically above
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   if (btn.dataset.action === 'timeline') {
-    timeline.push({ id: btn.dataset.id + '-' + Date.now(), name: btn.dataset.name, source: btn.dataset.source, url: btn.dataset.url });
+    timeline.push({ id: btn.dataset.id + '-' + Date.now(), name: btn.dataset.name, source: btn.dataset.source, url: btn.dataset.url, type: btn.dataset.type || 'video' });
     renderTimeline();
   } else if (btn.dataset.action === 'download') {
     downloadFile(btn.dataset.url, btn.dataset.filename, btn);
@@ -638,7 +687,7 @@ async function downloadFile(url, filename, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '0%'; }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 40000);
+  const timeoutId = setTimeout(() => controller.abort(), 40000); // 40s max
 
   try {
     if (url.startsWith('blob:')) {
@@ -729,10 +778,213 @@ fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
 function handleFiles(files) {
   Array.from(files).forEach(file => {
     const url = URL.createObjectURL(file);
-    timeline.push({ id: 'local-' + Date.now() + Math.random(), name: file.name, source: 'apna upload', url });
+    const type = file.type.startsWith('video') ? 'video' : (file.type.startsWith('audio') ? 'audio' : 'image');
+    timeline.push({ id: 'local-' + Date.now() + Math.random(), name: file.name, source: 'apna upload', url, type });
   });
   renderTimeline();
 }
+
+// ---- Aggressive Edit: browser-based video assembly using FFmpeg.wasm ----
+
+let ffmpegInstance = null;
+async function getFFmpeg() {
+  if (ffmpegInstance) return ffmpegInstance;
+  const { createFFmpeg } = FFmpeg;
+  ffmpegInstance = createFFmpeg({
+    log: false,
+    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.6/dist/ffmpeg-core.js'
+  });
+  await ffmpegInstance.load();
+  return ffmpegInstance;
+}
+
+async function fetchBytes(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('fetch failed: ' + res.status);
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+async function runAggressiveEdit() {
+  const statusEl = document.getElementById('editStatus');
+  const resultArea = document.getElementById('editResultArea');
+  const btn = document.getElementById('aggressiveEditBtn');
+  statusEl.style.display = 'block';
+  resultArea.innerHTML = '';
+
+  const visualItems = timeline.filter(t => t.type === 'image' || t.type === 'video');
+  const audioItems = timeline.filter(t => t.type === 'audio');
+
+  if (visualItems.length === 0) {
+    statusEl.textContent = 'Timeline mein pehle kuch images/videos add karo.';
+    return null;
+  }
+
+  const MAX_CLIPS = 10;
+  const clipsToUse = visualItems.slice(0, MAX_CLIPS);
+  if (visualItems.length > MAX_CLIPS) {
+    statusEl.textContent = `Sirf pehle ${MAX_CLIPS} clips use ho rahe hain (phone ki performance ke liye limit).`;
+  }
+
+  const clipDuration = parseFloat(document.getElementById('clipDuration').value) || 0.6;
+  const W = 540, H = 960;
+
+  btn.disabled = true;
+
+  try {
+    statusEl.textContent = 'Video engine load ho raha hai (pehli baar thoda time lagta hai)...';
+    const ffmpeg = await getFFmpeg();
+
+    for (let i = 0; i < clipsToUse.length; i++) {
+      const item = clipsToUse[i];
+      statusEl.textContent = `Clip ${i + 1}/${clipsToUse.length} process ho raha hai...`;
+      const bytes = await fetchBytes(item.url);
+      const ext = item.type === 'video' ? 'mp4' : 'jpg';
+      const inputName = `in_${i}.${ext}`;
+      ffmpeg.FS('writeFile', inputName, bytes);
+
+      const outputName = `seg_${i}.mp4`;
+      const vf = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},eq=contrast=1.15:saturation=1.3`;
+
+      if (item.type === 'image') {
+        await ffmpeg.run(
+          '-loop', '1', '-i', inputName,
+          '-t', String(clipDuration),
+          '-vf', vf,
+          '-r', '25', '-pix_fmt', 'yuv420p',
+          outputName
+        );
+      } else {
+        await ffmpeg.run(
+          '-i', inputName,
+          '-t', String(clipDuration),
+          '-vf', vf,
+          '-an', '-r', '25', '-pix_fmt', 'yuv420p',
+          outputName
+        );
+      }
+    }
+
+    statusEl.textContent = 'Clips ko jod rahe hain...';
+    const listContent = clipsToUse.map((_, i) => `file 'seg_${i}.mp4'`).join('\n');
+    ffmpeg.FS('writeFile', 'concat.txt', new TextEncoder().encode(listContent));
+    await ffmpeg.run('-f', 'concat', '-safe', '0', '-i', 'concat.txt', '-c', 'copy', 'concat_out.mp4');
+
+    let finalName = 'concat_out.mp4';
+
+    if (audioItems.length > 0) {
+      statusEl.textContent = 'Background music jod rahe hain...';
+      const musicBytes = await fetchBytes(audioItems[0].url);
+      ffmpeg.FS('writeFile', 'music.mp3', musicBytes);
+      await ffmpeg.run(
+        '-i', 'concat_out.mp4', '-i', 'music.mp3',
+        '-map', '0:v:0', '-map', '1:a:0',
+        '-c:v', 'copy', '-c:a', 'aac', '-shortest',
+        'final.mp4'
+      );
+      finalName = 'final.mp4';
+    }
+
+    statusEl.textContent = 'Final video taiyar ho rahi hai...';
+    const data = ffmpeg.FS('readFile', finalName);
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    const blobUrl = URL.createObjectURL(blob);
+
+    resultArea.innerHTML = `
+      <video controls src="${blobUrl}" style="width:100%; border-radius:12px; background:#000; max-height:480px;"></video>
+      <div class="action-row" style="margin-top:12px;">
+        <button class="btn-primary" id="downloadEditBtn">Video download karo</button>
+      </div>
+    `;
+    document.getElementById('downloadEditBtn').addEventListener('click', () => {
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = 'reelmatch-aggressive-edit.mp4';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+
+    statusEl.textContent = 'Ho gaya! Neeche preview aur download button hai.';
+    return blobUrl;
+  } catch (err) {
+    statusEl.textContent = 'Edit fail ho gaya: ' + err.message + '. Kam clips ke saath dobara try karo.';
+    return null;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('aggressiveEditBtn').addEventListener('click', runAggressiveEdit);
+
+// ---- Auto flow: prompt -> search all sources -> auto-pick best clips -> auto-edit ----
+
+function buildAutoTimeline() {
+  const picked = [];
+
+  // Prefer videos first (more content per clip), then fill with images
+  const pixVids = (lastSearch.pixabayVideos || []).slice(0, 2).map(v => ({
+    id: 'auto-pixv-' + v.id, name: v.tags.split(',')[0].trim(), source: 'Pixabay',
+    url: v.videos.tiny.url, type: 'video'
+  }));
+  const pexVids = (lastSearch.pexelsVideos || []).slice(0, 2).map(v => {
+    const files = v.video_files || [];
+    const small = files.find(f => f.quality === 'sd') || files[0];
+    return { id: 'auto-pexv-' + v.id, name: 'Pexels video', source: 'Pexels', url: small ? small.link : '', type: 'video' };
+  });
+  picked.push(...pixVids, ...pexVids);
+
+  const needed = 6 - picked.length;
+  if (needed > 0) {
+    const pixImgs = (lastSearch.pixabayImages || []).slice(0, 2).map(v => ({
+      id: 'auto-pixi-' + v.id, name: v.tags.split(',')[0].trim(), source: 'Pixabay',
+      url: v.previewURL || v.webformatURL, type: 'image'
+    }));
+    const pexImgs = (lastSearch.pexelsImages || []).slice(0, 2).map(p => ({
+      id: 'auto-pexi-' + p.id, name: p.alt || 'photo', source: 'Pexels', url: p.src.medium, type: 'image'
+    }));
+    const ovImgs = (lastSearch.openverseImages || []).slice(0, 2).map(r => ({
+      id: 'auto-ovi-' + r.id, name: r.title || 'image', source: 'Openverse',
+      url: `https://api.openverse.org/v1/images/${r.id}/thumb/`, type: 'image'
+    }));
+    picked.push(...[...pixImgs, ...pexImgs, ...ovImgs].slice(0, needed));
+  }
+
+  // One background audio track, if available
+  const audio = (lastSearch.openverseAudio || []).slice(0, 1).map(r => ({
+    id: 'auto-ova-' + r.id, name: r.title || 'audio', source: 'Openverse Audio', url: r.url, type: 'audio'
+  }));
+
+  return [...picked, ...audio];
+}
+
+document.getElementById('autoGenerateBtn').addEventListener('click', async () => {
+  const script = document.getElementById('scriptInput').value.trim();
+  const autoStatus = document.getElementById('autoGenerateStatus');
+  autoStatus.style.display = 'block';
+
+  if (!script) {
+    autoStatus.textContent = 'Pehle upar script/mood likho.';
+    return;
+  }
+
+  autoStatus.textContent = 'Sabhi sources se best matches dhoond rahe hain...';
+  await performSearch(script);
+
+  const autoItems = buildAutoTimeline();
+  if (autoItems.filter(i => i.type !== 'audio').length === 0) {
+    autoStatus.textContent = 'Koi matching clip nahi mila, alag keywords try karo.';
+    return;
+  }
+
+  timeline = autoItems;
+  renderTimeline();
+  autoStatus.textContent = `${autoItems.length} clips auto-select ho gaye, ab video ban rahi hai...`;
+
+  document.getElementById('editStatus').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  await runAggressiveEdit();
+  autoStatus.style.display = 'none';
+});
 </script>
 </body>
 </html>
