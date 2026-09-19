@@ -787,11 +787,17 @@ function handleFiles(files) {
 // ---- Aggressive Edit: browser-based video assembly using FFmpeg.wasm ----
 
 let ffmpegInstance = null;
+let ffmpegLogLines = [];
 async function getFFmpeg() {
   if (ffmpegInstance) return ffmpegInstance;
   const { createFFmpeg } = FFmpeg;
+  ffmpegLogLines = [];
   ffmpegInstance = createFFmpeg({
-    log: false,
+    log: true,
+    logger: ({ message }) => {
+      ffmpegLogLines.push(message);
+      if (ffmpegLogLines.length > 40) ffmpegLogLines.shift();
+    },
     corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.6/dist/ffmpeg-core.js'
   });
   await ffmpegInstance.load();
@@ -799,10 +805,18 @@ async function getFFmpeg() {
 }
 
 async function fetchBytes(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('fetch failed: ' + res.status);
-  const buf = await res.arrayBuffer();
-  return new Uint8Array(buf);
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('status ' + res.status);
+    const buf = await res.arrayBuffer();
+    return new Uint8Array(buf);
+  } catch (err) {
+    const proxied = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    const res2 = await fetch(proxied);
+    if (!res2.ok) throw new Error('fetch failed (direct and proxy both): ' + err.message);
+    const buf2 = await res2.arrayBuffer();
+    return new Uint8Array(buf2);
+  }
 }
 
 async function runAggressiveEdit() {
@@ -844,19 +858,17 @@ async function runAggressiveEdit() {
       ffmpeg.FS('writeFile', inputName, bytes);
 
       const outputName = `seg_${i}.mp4`;
-      // Cinematic dark/aggressive grade: slight punch-in with jitter (handheld feel),
-      // crushed contrast + desaturation, grain, subtle chromatic shift (glitch feel), vignette.
+      // Cinematic dark grade using widely-supported filters only (avoids exotic
+      // filters like rgbashift/noise/curves that may not be compiled into the
+      // browser build of FFmpeg and can silently fail the whole pipeline).
       const jitterX = i % 2 === 0 ? 10 : -10;
       const jitterY = i % 3 === 0 ? 8 : -8;
       const zoomW = Math.round(W * 1.1);
       const zoomH = Math.round(H * 1.1);
       const vf = `scale=${zoomW}:${zoomH}:force_original_aspect_ratio=increase,` +
                  `crop=${W}:${H}:x='(in_w-out_w)/2+${jitterX}':y='(in_h-out_h)/2+${jitterY}',` +
-                 `eq=contrast=1.35:brightness=-0.03:saturation=0.75,` +
-                 `curves=preset=darker,` +
-                 `vignette=PI/4:0.35,` +
-                 `rgbashift=rh=2:bh=-2,` +
-                 `noise=alls=6:allf=t`;
+                 `eq=contrast=1.3:brightness=-0.03:saturation=0.75,` +
+                 `vignette=PI/4:0.3`;
 
       if (item.type === 'image') {
         await ffmpeg.run(
@@ -877,18 +889,26 @@ async function runAggressiveEdit() {
       }
     }
 
-    // Build a single reusable white-flash frame for hard-hitting cuts between clips
-    statusEl.textContent = 'Hard-cut flash transitions bana rahe hain...';
-    await ffmpeg.run(
-      '-f', 'lavfi', '-i', `color=white:s=${W}x${H}:d=0.08`,
-      '-r', '25', '-pix_fmt', 'yuv420p', 'flash.mp4'
-    );
+    // Build a single reusable white-flash frame for hard-hitting cuts between clips.
+    // If this specific effect isn't supported on this device/browser, skip it rather
+    // than failing the entire video.
+    let flashAvailable = false;
+    try {
+      statusEl.textContent = 'Hard-cut flash transitions bana rahe hain...';
+      await ffmpeg.run(
+        '-f', 'lavfi', '-i', `color=white:s=${W}x${H}:d=0.08`,
+        '-r', '25', '-pix_fmt', 'yuv420p', 'flash.mp4'
+      );
+      flashAvailable = true;
+    } catch (flashErr) {
+      flashAvailable = false;
+    }
 
     statusEl.textContent = 'Clips ko jod rahe hain...';
     const listLines = [];
     clipsToUse.forEach((_, i) => {
       listLines.push(`file 'seg_${i}.mp4'`);
-      if (i < clipsToUse.length - 1) listLines.push(`file 'flash.mp4'`);
+      if (flashAvailable && i < clipsToUse.length - 1) listLines.push(`file 'flash.mp4'`);
     });
     const listContent = listLines.join('\n');
     ffmpeg.FS('writeFile', 'concat.txt', new TextEncoder().encode(listContent));
@@ -932,7 +952,8 @@ async function runAggressiveEdit() {
     statusEl.textContent = 'Ho gaya! Neeche preview aur download button hai.';
     return blobUrl;
   } catch (err) {
-    statusEl.textContent = 'Edit fail ho gaya: ' + err.message + '. Kam clips ke saath dobara try karo.';
+    const logTail = ffmpegLogLines.slice(-6).join(' | ');
+    statusEl.innerHTML = `Edit fail ho gaya.<br><span style="font-size:11px; word-break:break-all;">Error: ${err.message}${logTail ? '<br>FFmpeg log: ' + logTail : ''}</span><br>Kam clips (2-3) ke saath dobara try karo.`;
     return null;
   } finally {
     btn.disabled = false;
