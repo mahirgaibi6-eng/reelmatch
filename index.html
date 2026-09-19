@@ -307,7 +307,9 @@
     <div class="action-row">
       <button class="btn-primary" id="aggressiveEditBtn">Aggressive Edit Banao</button>
     </div>
-    <div id="editStatus" style="display:none; font-size:13px; color:var(--muted); margin-top:14px;"></div>
+    <div id="editStatus" style="background:var(--panel-2); border:1px solid var(--border); border-radius:12px; padding:16px; margin-top:16px; font-size:14px; color:var(--text); display:flex; align-items:center; gap:10px;">
+      <span style="color:var(--muted);">Button dabao — yahan turant status dikhega.</span>
+    </div>
     <div id="editResultArea" style="margin-top:16px;"></div>
   </section>
 
@@ -823,35 +825,37 @@ async function runAggressiveEdit() {
   const statusEl = document.getElementById('editStatus');
   const resultArea = document.getElementById('editResultArea');
   const btn = document.getElementById('aggressiveEditBtn');
-  statusEl.style.display = 'block';
+  const setStatus = (text, loading = true) => {
+    statusEl.innerHTML = loading
+      ? `<span class="spinner"></span><span>${text}</span>`
+      : `<span>${text}</span>`;
+  };
   resultArea.innerHTML = '';
+  setStatus('Shuru kar rahe hain...');
 
   const visualItems = timeline.filter(t => t.type === 'image' || t.type === 'video');
   const audioItems = timeline.filter(t => t.type === 'audio');
 
   if (visualItems.length === 0) {
-    statusEl.textContent = 'Timeline mein pehle kuch images/videos add karo.';
+    statusEl.innerHTML = '<span style="color:var(--amber);">⚠ Timeline mein pehle kuch images/videos add karo (upar results se "Timeline" button dabao).</span>';
     return null;
   }
 
-  const MAX_CLIPS = 10;
+  const MAX_CLIPS = 6;
   const clipsToUse = visualItems.slice(0, MAX_CLIPS);
-  if (visualItems.length > MAX_CLIPS) {
-    statusEl.textContent = `Sirf pehle ${MAX_CLIPS} clips use ho rahe hain (phone ki performance ke liye limit).`;
-  }
 
   const clipDuration = parseFloat(document.getElementById('clipDuration').value) || 0.6;
-  const W = 540, H = 960;
+  const W = 480, H = 854; // smaller resolution = noticeably faster on mobile
 
   btn.disabled = true;
 
   try {
-    statusEl.textContent = 'Video engine load ho raha hai (pehli baar thoda time lagta hai)...';
+    setStatus('Video engine load ho raha hai (pehli baar thoda time lagta hai)...');
     const ffmpeg = await getFFmpeg();
 
     for (let i = 0; i < clipsToUse.length; i++) {
       const item = clipsToUse[i];
-      statusEl.textContent = `Clip ${i + 1}/${clipsToUse.length} process ho raha hai...`;
+      setStatus(`Clip ${i + 1}/${clipsToUse.length} process ho raha hai...`);
       const bytes = await fetchBytes(item.url);
       const ext = item.type === 'video' ? 'mp4' : 'jpg';
       const inputName = `in_${i}.${ext}`;
@@ -894,7 +898,7 @@ async function runAggressiveEdit() {
     // than failing the entire video.
     let flashAvailable = false;
     try {
-      statusEl.textContent = 'Hard-cut flash transitions bana rahe hain...';
+      setStatus('Hard-cut flash transitions bana rahe hain...');
       await ffmpeg.run(
         '-f', 'lavfi', '-i', `color=white:s=${W}x${H}:d=0.08`,
         '-r', '25', '-pix_fmt', 'yuv420p', 'flash.mp4'
@@ -904,7 +908,7 @@ async function runAggressiveEdit() {
       flashAvailable = false;
     }
 
-    statusEl.textContent = 'Clips ko jod rahe hain...';
+    setStatus('Clips ko jod rahe hain...');
     const listLines = [];
     clipsToUse.forEach((_, i) => {
       listLines.push(`file 'seg_${i}.mp4'`);
@@ -917,7 +921,7 @@ async function runAggressiveEdit() {
     let finalName = 'concat_out.mp4';
 
     if (audioItems.length > 0) {
-      statusEl.textContent = 'Background music jod rahe hain...';
+      setStatus('Background music jod rahe hain...');
       const musicBytes = await fetchBytes(audioItems[0].url);
       ffmpeg.FS('writeFile', 'music.mp3', musicBytes);
       await ffmpeg.run(
@@ -929,7 +933,7 @@ async function runAggressiveEdit() {
       finalName = 'final.mp4';
     }
 
-    statusEl.textContent = 'Final video taiyar ho rahi hai...';
+    setStatus('Final video taiyar ho rahi hai...');
     const data = ffmpeg.FS('readFile', finalName);
     const blob = new Blob([data.buffer], { type: 'video/mp4' });
     const blobUrl = URL.createObjectURL(blob);
@@ -949,11 +953,11 @@ async function runAggressiveEdit() {
       a.remove();
     });
 
-    statusEl.textContent = 'Ho gaya! Neeche preview aur download button hai.';
+    setStatus('✅ Ho gaya! Neeche preview aur download button hai.', false);
     return blobUrl;
   } catch (err) {
     const logTail = ffmpegLogLines.slice(-6).join(' | ');
-    statusEl.innerHTML = `Edit fail ho gaya.<br><span style="font-size:11px; word-break:break-all;">Error: ${err.message}${logTail ? '<br>FFmpeg log: ' + logTail : ''}</span><br>Kam clips (2-3) ke saath dobara try karo.`;
+    statusEl.innerHTML = `<span style="color:#E86A6A;">❌ Edit fail ho gaya.</span><br><span style="font-size:11px; word-break:break-all; color:var(--muted);">Error: ${err.message}${logTail ? '<br>FFmpeg log: ' + logTail : ''}</span><br><span style="color:var(--muted); font-size:12px;">Kam clips (2-3) ke saath dobara try karo.</span>`;
     return null;
   } finally {
     btn.disabled = false;
